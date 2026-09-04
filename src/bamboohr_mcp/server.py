@@ -112,6 +112,8 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     mcp = FastMCP(
         name="bamboohr-mcp",
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        stateless_http=True,
+        json_response=True,
     )
 
     def client_factory() -> BambooHRClient | None:
