@@ -1,0 +1,217 @@
+[
+  {
+    "id": "TC-BTO-001",
+    "ac": "AC1",
+    "module": "BambooHR Time Off",
+    "priority": "P0",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 已配置有效的 gateway 凭据（domain=acmeinc, api-key=key123），When 调用 bamboohr_list_time_off_requests(start=\"2026-09-08\", end=\"2026-09-08\")，Then 返回的 JSON 数组中每条记录都能读到 employeeId/name/type/start/end/status/amount 字段（用 respx mock 固定上游响应体验证透传不丢字段）。",
+    "tests": ["tests/test_time_off.py::test_single_day_query_passes_through_all_fields"],
+    "notes": "mock 响应体字段名（employeeId/name/status.status/type.name/amount）取自 BambooHR 公开 API 文档，未对真实租户验证，见 TC-BTO-020。"
+  },
+  {
+    "id": "TC-BTO-002",
+    "ac": "AC2",
+    "module": "BambooHR Time Off",
+    "priority": "P0",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 同上凭据，When 传入覆盖一整周的 start=\"2026-09-01\" end=\"2026-09-07\"，Then 请求发往上游的 query 参数 start/end 与传入值完全一致，且返回体中跨越多天的多条记录全部原样透传（不做客户端截断或去重）。",
+    "tests": ["tests/test_time_off.py::test_weekly_range_query_forwards_full_range"]
+  },
+  {
+    "id": "TC-BTO-003",
+    "ac": "AC3",
+    "module": "BambooHR Time Off",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 调用时传入 status=\"approved\"，When 检查发往上游的实际请求，Then 请求 query 中 status=approved 被原样传递（respx 断言 request.url.params[\"status\"] == \"approved\"），且未传 status 时该 key 不出现在请求参数里（复用 api_client._clean_params 丢弃 None 的既有行为）。",
+    "tests": ["tests/test_time_off.py::test_status_filter_forwarded_when_present", "tests/test_time_off.py::test_status_omitted_when_not_passed"]
+  },
+  {
+    "id": "TC-BTO-004",
+    "ac": "AC4",
+    "module": "BambooHR Time Off",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 调用时传入 employee_id=\"42\"，When 检查发往上游的实际请求，Then 请求 query 中 employeeId=42（Python 参数名 employee_id 映射为 BambooHR 的 employeeId）被原样传递。",
+    "tests": ["tests/test_time_off.py::test_employee_id_filter_maps_to_employeeId_param"]
+  },
+  {
+    "id": "TC-BTO-005",
+    "ac": "AC5",
+    "module": "BambooHR Time Off",
+    "priority": "P0",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given gateway 模式下 POST /mcp 请求完全不带 domain 与 api-key 两个 header，When 调用 tools/call 触发任意工具（含本工具），Then GatewayCredsMiddleware 在到达工具代码之前就返回 401，响应体 missing_headers 包含 [\"domain\",\"api-key\"]（复用 test_middleware.py 已有断言模式，仅换成本工具名）。",
+    "tests": ["tests/test_time_off.py::test_missing_both_headers_returns_401_before_tool_runs"]
+  },
+  {
+    "id": "TC-BTO-006",
+    "ac": "AC5",
+    "module": "BambooHR Time Off",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given env 模式下未设置 BAMBOOHR_DOMAIN/BAMBOOHR_API_KEY（Settings(auth_mode=\"env\") 两者皆空），When 调用 bamboohr_list_time_off_requests(start=\"2026-09-08\", end=\"2026-09-08\")，Then client_factory() 返回 None，工具返回固定文案 \"Error: No BambooHR credentials configured...\"（与 employees.py 的 _NO_CREDS 常量逐字一致），不抛出未捕获异常。",
+    "tests": ["tests/test_time_off.py::test_env_mode_missing_credentials_returns_no_creds_text"]
+  },
+  {
+    "id": "TC-BTO-007",
+    "ac": "AC6",
+    "module": "BambooHR Time Off",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given respx mock 让 GET /time_off/requests 返回 400，body {\"message\":\"invalid start date\"}，When 调用本工具，Then 返回文本以 \"Error: BambooHR API error 400\" 开头且包含 \"invalid start date\"，不抛出未捕获异常、不返回空结果假装成功。",
+    "tests": ["tests/test_time_off.py::test_upstream_400_forwarded_verbatim"]
+  },
+  {
+    "id": "TC-BTO-008",
+    "ac": "AC6",
+    "module": "BambooHR Time Off",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given respx mock 让 GET /time_off/requests 返回 401（api-key 对上游无效），When 调用本工具，Then 返回文本包含状态码 401 与上游错误说明，行为与 400 分支一致地转发而非吞掉。",
+    "tests": ["tests/test_time_off.py::test_upstream_401_forwarded"]
+  },
+  {
+    "id": "TC-BTO-009",
+    "ac": "AC6",
+    "module": "BambooHR Time Off",
+    "priority": "P2",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given respx mock 让 GET /time_off/requests 返回 403 且带 X-BambooHR-Error-Message: \"Access denied for this report\"，When 调用本工具，Then 返回文本包含 \"Access denied for this report\"（复用 api_client._raise_for_status 读取该 header 的既有逻辑）。",
+    "tests": ["tests/test_time_off.py::test_upstream_403_includes_reason_header"]
+  },
+  {
+    "id": "TC-BTO-010",
+    "ac": "AC7",
+    "module": "BambooHR Time Off",
+    "priority": "P2",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given respx mock 让 GET /time_off/requests 返回 200，body 为空数组 []，When 调用本工具，Then 返回值是能被 json.loads 解析回 [] 的文本，不是错误文案、不是 null。",
+    "tests": ["tests/test_time_off.py::test_empty_result_returns_empty_array_not_error"]
+  },
+  {
+    "id": "TC-BTO-011",
+    "ac": "AC8",
+    "module": "BambooHR Time Off · 多租户隔离",
+    "priority": "P0",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 两个不同 Settings（tenant-a: domain=tenanta, api-key=keyA；tenant-b: domain=tenantb, api-key=keyB）分别通过 asyncio.gather 并发调用 bamboohr_list_time_off_requests，且 respx 对两个域名各自 mock 不同的固定响应体（tenanta 返回 employeeId=1 的记录，tenantb 返回 employeeId=2 的记录），When 并发结果返回，Then tenant-a 的调用只拿到 employeeId=1 的记录、tenant-b 的调用只拿到 employeeId=2 的记录，两者互不串号（断言两个 gather 结果分别与各自 mock 一致）。",
+    "tests": ["tests/test_time_off.py::test_concurrent_calls_do_not_leak_credentials_across_tenants"],
+    "notes": "这个仓库现有测试里没有并发用例先例；实现思路是用 contextvars.copy_context() 或直接构造两个独立 Settings + client_factory 并 asyncio.gather 调用，不依赖真实网络。这条验的是 contextvars 请求级隔离本身，不是网关的租户鉴权（网关侧隔离已在 mcp-service-gateway 单独实现，不在本仓库范围）。"
+  },
+  {
+    "id": "TC-BTO-012",
+    "ac": "",
+    "module": "BambooHR Time Off · 边界",
+    "priority": "P2",
+    "type": "manual",
+    "source": "dev",
+    "text": "[需求缺失/INCOMPLETE] Given start 晚于 end（如 start=\"2026-09-10\" end=\"2026-09-01\"），When 调用本工具，Then -",
+    "steps": ["1) 用测试 BambooHR 账号或 respx mock 调用 bamboohr_list_time_off_requests(start=\"2026-09-10\", end=\"2026-09-01\")", "2) 记录返回内容（是本地报错、上游报错、还是被上游当成一个空区间返回 []）"],
+    "expect": "-（需求缺失，暂无可判定的期望结果）",
+    "result": "untested",
+    "notes": "产品设计与工单原文均未定义 start>end 时的期望行为；本工具当前实现不做本地日期顺序校验，直接透传给上游。缺少产品定义：这种输入应该在工具层拦截报错，还是允许透传交给上游处理？"
+  },
+  {
+    "id": "TC-BTO-013",
+    "ac": "AC6",
+    "module": "BambooHR Time Off · 边界",
+    "priority": "P2",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given start 传入非 YYYY-MM-DD 格式的字符串（如 \"09/08/2026\"），且 respx mock 对应返回 400 body {\"message\":\"start is not a valid date\"}，When 调用本工具，Then 与 TC-BTO-007 相同地把 400 与错误说明原样转发（工具层不做本地日期格式校验，等价于 AC6 的一个输入等价类）。",
+    "tests": ["tests/test_time_off.py::test_malformed_date_format_forwarded_as_upstream_400"]
+  },
+  {
+    "id": "TC-BTO-014",
+    "ac": "",
+    "module": "BambooHR Time Off · 性能",
+    "priority": "P2",
+    "type": "manual",
+    "source": "dev",
+    "text": "[需求缺失/INCOMPLETE] Given 工单与产品设计均未给出并发量/响应时间的 SLA，When 需要对本工具做性能验收，Then -",
+    "steps": ["1) 与需求方确认本工具是否有明确的延迟/并发目标（当前判断：低频只读工具，日/周级 SOP 触发，非用户交互路径，大概率不需要强 SLA）", "2) 若无 SLA 要求，本条目仅作为已知缺口记录，不阻塞交付"],
+    "expect": "-（需求缺失，暂无 SLA 可判定）",
+    "result": "untested",
+    "notes": "缺少产品定义：本工具的调用频率/并发量级/可接受延迟。按现状（Daily/Weekly SOP 定时触发，非用户实时交互）判断优先级低，不阻塞设计推进，但需要在 Open Questions 里明示。"
+  },
+  {
+    "id": "TC-BTO-015",
+    "ac": "AC6",
+    "module": "BambooHR Time Off · 安全",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given employee_id 参数传入 \"1' OR '1'='1\"（SQL 注入片段）与 status 参数传入 \"<script>alert(1)</script>\"（XSS 片段），When 调用本工具，Then 这两个值被当作普通字符串原样放进上游 HTTP query 参数（本地无 SQL/DOM 执行环境，respx 断言请求 URL 中的参数值与传入字符串完全一致，未被本地代码解释执行），且不引发本地未捕获异常。",
+    "tests": ["tests/test_time_off.py::test_injection_like_params_are_passed_through_as_literal_strings"],
+    "notes": "本工具无本地数据库/无 HTML 渲染，注入面理论上仅在上游 BambooHR 一侧；这里验证的是「本地代码不对参数做任何危险解释」这条边界，不是「上游是否安全」。"
+  },
+  {
+    "id": "TC-BTO-016",
+    "ac": "",
+    "module": "BambooHR Time Off · 安全",
+    "priority": "P3",
+    "type": "manual",
+    "source": "dev",
+    "text": "不适用：本工具是纯只读 GET 端点，没有任何写入/更新字段，因此不存在 Mass Assignment（客户端覆盖服务端计算字段）风险面。",
+    "steps": ["无需执行 —— 记录为不适用并说明理由，避免留白被误读成遗漏"],
+    "expect": "不适用，无需执行",
+    "result": "untested",
+    "notes": "OWASP API Top10 的 Mass Assignment 锚点在本工具不适用，原因见 text。"
+  },
+  {
+    "id": "TC-BTO-017",
+    "ac": "",
+    "module": "BambooHR Time Off · 边界",
+    "priority": "P2",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given time_off_type_id 或 status 传入上游未定义的枚举值（如 status=\"bogus_status\"），且本工具不做本地枚举校验，When 调用本工具，Then 该值原样透传给上游查询参数（respx 断言请求参数），上游对非法枚举的处理（400 或忽略）由 TC-BTO-007/TC-BTO-010 的分支覆盖，本条只验证「本地不做校验、不静默改写」这一行为本身。",
+    "tests": ["tests/test_time_off.py::test_unknown_enum_value_forwarded_unvalidated"]
+  },
+  {
+    "id": "TC-BTO-018",
+    "ac": "",
+    "module": "BambooHR Time Off · 边界",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 调用 mcp.call_tool(\"bamboohr_list_time_off_requests\", {\"end\": \"2026-09-08\"})（缺失必填参数 start），When 触发调用，Then FastMCP 在进入工具函数体之前就返回参数校验错误（不会真的发出任何上游 HTTP 请求 —— respx 断言 route.calls 为空）。",
+    "tests": ["tests/test_time_off.py::test_missing_required_start_param_rejected_before_upstream_call"]
+  },
+  {
+    "id": "TC-BTO-019",
+    "ac": "",
+    "module": "BambooHR Time Off · 边界",
+    "priority": "P1",
+    "type": "auto",
+    "source": "dev",
+    "text": "Given 调用 mcp.call_tool(\"bamboohr_list_time_off_requests\", {\"start\": \"2026-09-08\"})（缺失必填参数 end），When 触发调用，Then 与 TC-BTO-018 对称地在工具函数体之前被拒绝，不发出上游请求。",
+    "tests": ["tests/test_time_off.py::test_missing_required_end_param_rejected_before_upstream_call"]
+  },
+  {
+    "id": "TC-BTO-020",
+    "ac": "AC1",
+    "module": "BambooHR Time Off · 真实环境核验",
+    "priority": "P0",
+    "type": "manual",
+    "source": "dev",
+    "text": "Given 一个真实（或 BambooHR 提供的 sandbox）公司账号的 domain + api-key，When 用该凭据实际调用 GET /time_off/requests（可直接 curl 上游，或通过本工具走一次真实请求），Then 响应体里确实能读到 employeeId、name（员工姓名）、type.name（假别）、start、end、status.status、amount 这几个字段——技术设计假设的响应字段来自 BambooHR 公开 API 文档，尚未对本组织实际账号验证过。",
+    "steps": ["1) 用一个已知有请假记录的真实/sandbox BambooHR 账号的 domain 与 api-key", "2) curl -u \"<api-key>:mspbots\" \"https://api.bamboohr.com/api/gateway.php/<domain>/v1/time_off/requests?start=<有记录的起始日>&end=<有记录的结束日>\" -H \"Accept: application/json\"", "3) 核对返回 JSON 数组里每条记录是否包含 employeeId/name/type.name/start/end/status.status/amount 这些字段，記錄實際字段名（如與假設不同）"],
+    "expect": "响应字段覆盖工单「Minimum response fields needed」列出的六项（员工姓名/员工ID/假别/起止日期/状态/时长），若实际字段名与本设计假设不同，需回技术设计 §5 调整字段映射后才能合并。",
+    "result": "untested",
+    "notes": "这是唯一一条要求真实上游账号的用例，其余 19 条都可用 respx mock 在本地/CI 跑完。建议在 legs/dev.md 的自测阶段、拿到真实凭据后第一时间跑这一条，尽早暴露假设是否成立。"
+  }
+]
