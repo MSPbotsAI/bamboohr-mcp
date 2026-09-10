@@ -87,10 +87,12 @@ Naming convention: `<vendor>_<action>_<resource>`.
 | `bamboohr_get_employee`     | Get one employee (`GET /employees/{id}`)                 | `employee_id` (str, required; `"0"` = self), `fields` (str, optional comma-separated field names)                            |
 | `bamboohr_list_employees`   | List the employee directory (`GET /employees/directory`) | none                                                                                                                          |
 | `bamboohr_list_fields`      | List available field names (`GET /meta/fields`)          | none                                                                                                                          |
+| `bamboohr_list_time_off_requests` | List time-off requests in a date range (`GET /time_off/requests`) | `start` (str, **required**, YYYY-MM-DD), `end` (str, **required**, YYYY-MM-DD), `status`, `employee_id`, `time_off_type_id` — all optional |
 
 **Notes**
 - `bamboohr_create_employee` requires only `first_name` + `last_name`. Any other writable field can be passed via `additional_fields` using BambooHR field names (e.g. `{"homeEmail": "a@b.com"}`) — call `bamboohr_list_fields` to discover valid names. On success it returns the new `employee_id` (parsed from the `201` `Location` header).
 - `bamboohr_get_employee` returns only `id` unless fields are requested; a sensible default set is applied when `fields` is omitted.
+- `bamboohr_list_time_off_requests` requires `start` + `end` (a single day or a range); `status`/`employee_id`/`time_off_type_id` are passed through to BambooHR unvalidated — no local enum or date-order checking is done, the upstream response (including its errors) is authoritative.
 
 ## Quick Start
 
@@ -211,6 +213,25 @@ curl -X POST http://localhost:8080/mcp \
   -H "domain: <DOMAIN>" \
   -H "api-key: <API_KEY>" \
   -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"bamboohr_list_employees","arguments":{}}}'
+```
+
+### List time-off requests
+
+```bash
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "domain: <DOMAIN>" \
+  -H "api-key: <API_KEY>" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "tools/call",
+    "params": {
+      "name": "bamboohr_list_time_off_requests",
+      "arguments": {"start": "2026-09-01", "end": "2026-09-07", "status": "approved"}
+    }
+  }'
 ```
 
 ## Security

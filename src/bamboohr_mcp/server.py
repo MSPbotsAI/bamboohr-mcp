@@ -142,8 +142,9 @@ def create_mcp_server(settings: Settings) -> FastMCP:
         return mcp
 
     # Register all tool modules here.
-    from .tools import employees
+    from .tools import employees, time_off
 
     employees.register(mcp, client_factory)
+    time_off.register(mcp, client_factory)
 
     return mcp
